@@ -1,0 +1,232 @@
+---
+title: "Analisando o Resultado de Uma Campanha de Marketing - Versão 3"
+author: "Data Science Academy"
+date: "03 de Agosto, 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r initial, include=FALSE}
+# Carregando os dados
+abandoned_data = read.csv('call_sem_vendas.csv',header = TRUE, stringsAsFactors = FALSE)
+reservation_data = read.csv('call_vendas_reservas.csv',header = TRUE, stringsAsFactors = FALSE)
+```
+>I. Problema de Negócio
+
+*A Agência de Viagens Borboleta Feliz possui os dados de todos os clientes que receberam campanhas de Marketing da empresa, mas que não comparam um pacote de férias.* 
+
+*Problema de negócio: Devemos continuar investindo nesses clientes (retarget)?*
+
+```{r test summary}
+abandoned_data$Test  <- NA
+abandoned_data$Test[abandoned_data$Test_Control == "test"] <- 1
+abandoned_data$Test[abandoned_data$Test_Control == "control"] <- 0
+
+summary(abandoned_data$Test)
+```
+
+Standard Deviation  = `r sd(abandoned_data$Test)`  
+q5 = `r quantile(abandoned_data$Test,0.05)`  
+q95 = `r quantile(abandoned_data$Test,0.95)`  
+
+
+```{r states summary}
+abandoned_data$Has_State <- 0
+abandoned_data$Has_State[abandoned_data$Address != ""] <- 1
+
+summary(abandoned_data$Test[abandoned_data$Has_State == 1])
+```
+
+Standard Deviation  = `r sd(abandoned_data$Test[abandoned_data$Has_State == 1])`  
+q5 = `r quantile(abandoned_data$Test[abandoned_data$Has_State == 1],0.05)`  
+q95 = `r quantile(abandoned_data$Test[abandoned_data$Has_State == 1],0.95)`  
+
+
+>II. Data Matching
+
+```{r match}
+abandoned_data[abandoned_data == ""] <- NA
+reservation_data[reservation_data == ""] <- NA
+
+# Email Matches
+Email_Matches_Abandoned <- ifelse(!is.na(abandoned_data$Email),abandoned_data$Email %in% reservation_data$Email,FALSE)
+
+# Contact Phone Matches
+ContactPhone_Matches_Abandoned <- ifelse(!is.na(abandoned_data$Contact_Phone),abandoned_data$Contact_Phone %in% reservation_data$Contact_Phone,FALSE)
+
+# Last Name, Incoming Phone Matches
+LastName_Incoming_Matches_Abandoned <- ifelse(!is.na(abandoned_data$Last_Name) & !is.na(abandoned_data$Incoming_Phone),paste0(abandoned_data$Last_Name,abandoned_data$Incoming_Phone) %in% paste0(reservation_data$Last_Name,reservation_data$Incoming_Phone),FALSE)
+
+# First Name, Last Name, Zip Matches
+Names_Zip_Matches_Abandoned <- ifelse((!is.na(abandoned_data$First_Name) & !is.na(abandoned_data$Last_Name)) & !is.na(abandoned_data$Zipcode) ,paste0(abandoned_data$First_Name,abandoned_data$Last_Name,abandoned_data$Zipcode) %in% paste0(reservation_data$First_Name,reservation_data$Last_Name,reservation_data$Zipcode),FALSE)
+
+# Combine all Matches
+All_Matches_Abandoned = Email_Matches_Abandoned | ContactPhone_Matches_Abandoned | LastName_Incoming_Matches_Abandoned | Names_Zip_Matches_Abandoned
+abandoned_data_matches <- abandoned_data[All_Matches_Abandoned,]
+
+# Remove Duplicates based on the keys
+abandoned_data_matches <- abandoned_data_matches[!duplicated(abandoned_data_matches[,c("Email")],incomparables = NA),]
+abandoned_data_matches <- abandoned_data_matches[!duplicated(abandoned_data_matches[,c("Contact_Phone")],incomparables = NA),]
+abandoned_incoming_dup <- duplicated(abandoned_data_matches[,c("Incoming_Phone")],incomparables = NA)
+abandoned_lastname_dup <- duplicated(abandoned_data_matches[,c("Last_Name")],incomparables = NA)
+abandoned_firstname_dup <- duplicated(abandoned_data_matches[,c("First_Name")],incomparables = NA)
+abandoned_zipcode_dup <- duplicated(abandoned_data_matches[,c("Zipcode")],incomparables = NA)
+abandoned_data_matches <- abandoned_data_matches[!(abandoned_incoming_dup & abandoned_lastname_dup),]
+abandoned_data_matches <- abandoned_data_matches[!(abandoned_firstname_dup & abandoned_lastname_dup & abandoned_zipcode_dup),]
+
+# Store Outcome in original dataset
+abandoned_data$Outcome <- 0
+abandoned_data$Outcome[as.numeric(row.names(abandoned_data_matches))] <- 1
+```
+
+
+```{r cross-tab }
+library(knitr)
+treatments <- nrow(abandoned_data[abandoned_data$Test == 1,])
+controls <- nrow(abandoned_data[abandoned_data$Test == 0,])
+treatment_buy <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 1])
+treatment_nobuy <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 1])
+control_buy <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 0])
+control_nobuy <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 0])
+
+conv_rate_treatment <- treatment_buy/treatments*100
+conv_rate_control <- control_buy/controls*100
+cross_tab <- data.frame(treatment_buy,treatment_nobuy,control_buy,control_nobuy)
+kable(cross_tab)
+```
+
+Conversion Rate for Treatment Group is `r conv_rate_treatment` %.   
+Conversion Rate for Control Group is `r conv_rate_control` %.
+
+State: New York
+```{r cross-tab-NY}
+#NY
+treatment_buy_NY <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 1 & abandoned_data$Address == "NY"])
+treatment_nobuy_NY <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 1 & abandoned_data$Address == "NY"])
+control_buy_NY <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 0 & abandoned_data$Address == "NY"])
+control_nobuy_NY <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 0 & abandoned_data$Address == "NY"])
+cross_tab_NY <- data.frame(treatment_buy_NY,treatment_nobuy_NY,control_buy_NY,control_nobuy_NY)
+kable(cross_tab_NY)
+```
+
+State: Ohio
+```{r cross-tab-OH}
+#OH
+treatment_buy_OH <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 1 & abandoned_data$Address == "OH"])
+treatment_nobuy_OH <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 1 & abandoned_data$Address == "OH"])
+control_buy_OH <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 0 & abandoned_data$Address == "OH"])
+control_nobuy_OH <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 0 & abandoned_data$Address == "OH"])
+cross_tab_OH <- data.frame(treatment_buy_OH,treatment_nobuy_OH,control_buy_OH,control_nobuy_OH)
+kable(cross_tab_OH)
+```
+
+State: Arizona
+```{r cross-tab-AZ}
+#AZ
+treatment_buy_AZ <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 1 & abandoned_data$Address == "AZ"])
+treatment_nobuy_AZ <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 1 & abandoned_data$Address == "AZ"])
+control_buy_AZ <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 0 & abandoned_data$Address == "AZ"])
+control_nobuy_AZ <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 0 & abandoned_data$Address == "AZ"])
+cross_tab_AZ <- data.frame(treatment_buy_AZ,treatment_nobuy_AZ,control_buy_AZ,control_nobuy_AZ)
+kable(cross_tab_AZ)
+```
+
+State: Illinois
+```{r cross-tab-IL}
+#IL
+treatment_buy_IL <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 1 & abandoned_data$Address == "IL"])
+treatment_nobuy_IL <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 1 & abandoned_data$Address == "IL"])
+control_buy_IL <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 0 & abandoned_data$Address == "IL"])
+control_nobuy_IL <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 0 & abandoned_data$Address == "IL"])
+cross_tab_IL <- data.frame(treatment_buy_IL,treatment_nobuy_IL,control_buy_IL,control_nobuy_IL)
+kable(cross_tab_IL)
+```
+
+State: California
+```{r cross-tab-CA}
+#CA
+treatment_buy_CA <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 1 & abandoned_data$Address == "CA"])
+treatment_nobuy_CA <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 1 & abandoned_data$Address == "CA"])
+control_buy_CA <- length(abandoned_data$Outcome[abandoned_data$Outcome == 1 & abandoned_data$Test == 0 & abandoned_data$Address == "CA"])
+control_nobuy_CA <- length(abandoned_data$Outcome[abandoned_data$Outcome == 0 & abandoned_data$Test == 0 & abandoned_data$Address == "CA"])
+cross_tab_CA <- data.frame(treatment_buy_CA,treatment_nobuy_CA,control_buy_CA,control_nobuy_CA)
+kable(cross_tab_CA)
+```
+
+>III. Data Cleaning
+
+```{r new-dataset}
+reservation_email_matches <- match(abandoned_data_matches$Email, reservation_data$Email, nomatch = 0, incomparables = NA)
+reservation_phone_matches <- match(abandoned_data_matches$Contact_Phone, reservation_data$Contact_Phone, nomatch = 0, incomparables = NA)
+reservation_name_incoming_matches <- ifelse(!is.na(abandoned_data_matches$Last_Name) & !is.na(abandoned_data_matches$Incoming_Phone),match(paste0(abandoned_data_matches$Last_Name,abandoned_data_matches$Incoming_Phone), paste0(reservation_data$Last_Name,reservation_data$Incoming_Phone), nomatch = 0, incomparables = NA),0)
+reservation_name_zip_matches <- ifelse(!is.na(abandoned_data_matches$First_Name) & !is.na(abandoned_data_matches$Last_Name) & !is.na(abandoned_data_matches$Zipcode),match(paste0(abandoned_data_matches$First_Name,abandoned_data_matches$Last_Name,abandoned_data_matches$Zipcode), paste0(reservation_data$First_Name,reservation_data$Last_Name,reservation_data$Zipcode), nomatch = 0, incomparables = NA),0)
+reservation_all_matches <- reservation_email_matches
+reservation_all_matches <- ifelse(reservation_all_matches == 0,reservation_all_matches+reservation_phone_matches,reservation_all_matches)
+reservation_all_matches <- ifelse(reservation_all_matches == 0,reservation_all_matches+reservation_name_incoming_matches,reservation_all_matches)
+reservation_all_matches <- ifelse(reservation_all_matches == 0,reservation_all_matches+reservation_name_zip_matches,reservation_all_matches)
+abandoned_all_matches <- as.numeric(row.names(abandoned_data_matches))
+
+abandoned_data$Days_in_between <- 200
+abandoned_data$Days_in_between[abandoned_data$Outcome == 1] <- as.numeric(as.Date(reservation_data$Session[reservation_all_matches],"%Y.%m.%d %H:%M:%S") - as.Date(abandoned_data$Session[abandoned_all_matches],"%Y.%m.%d %H:%M:%S")) 
+
+cleaned_abandoned_data <- data.frame(c(1:nrow(abandoned_data)),abandoned_data$Test,abandoned_data$Outcome,abandoned_data$Days_in_between,abandoned_data$Address)
+colnames(cleaned_abandoned_data) <- c("Customer_ID","Test_Variable","Outcome","Days_in_Between","State")
+
+write.csv(cleaned_abandoned_data,file = "cleaned_abandoned_data.csv")
+
+```
+
+
+>IV. Statistical Analysis
+
+
+*Model-1:* Outcome = alpha + beta * Test Variable + error*
+
+```{r lm-1}
+lmodel1 <- lm(cleaned_abandoned_data$Outcome ~ cleaned_abandoned_data$Test_Variable)
+kable(summary(lmodel1)$coef, digits=3)
+```
+
+Outcome = 0.01 + 0.032 * Test_Variable + 0.002    
+Adjusted R-squared = `r summary(lmodel1)$adj.r.squared`   
+
+```{r lm-dummy-variable-email}
+abandoned_data$Has_Email <- 0
+abandoned_data$Has_Email[!is.na(abandoned_data$Email)] <- 1
+```
+
+*Model-2:* Outcome = alpha + beta1 * Test Variable + beta2 * Has Email * beta3 * Has_State + error*
+```{r lm-2}
+lmodel2 <- lm(cleaned_abandoned_data$Outcome ~ cleaned_abandoned_data$Test_Variable + abandoned_data$Has_Email + abandoned_data$Has_State)
+kable(summary(lmodel2)$coef, digits = 3)
+```
+
+Outcome = -0.001 + 0.031 * Test Variable + 0.048 * Has Email * 0.014 * Has_State + 0.002    
+Adjusted R-squared = `r summary(lmodel2)$adj.r.squared`
+
+The adjusted R-squared has increased to 0.023 after using the dummy variables - Has Email and Has State. Hence compared to the output from the first model, this fits better.   
+
+*Model-3:* Outcome = alpha + beta1 * Test Variable * Has Email * beta2 * Has State + error*
+```{r lm-3}
+lmodel3 <- lm(cleaned_abandoned_data$Outcome ~ cleaned_abandoned_data$Test_Variable*abandoned_data$Has_Email + abandoned_data$Has_State)
+kable(summary(lmodel3)$coef)
+```
+
+
+>v. Statistical Analysis: Response Times
+
+*Model-4:* Outcome = alpha + beta * Days in Between * Test Variable + error
+```{r lm-4}
+lmodel4 <- lm(cleaned_abandoned_data$Outcome ~ cleaned_abandoned_data$Days_in_Between*cleaned_abandoned_data$Test_Variable)
+kable(summary(lmodel4)$coef)
+```
+
+
+** This is the best linear regression model for this dataset**
+
+
